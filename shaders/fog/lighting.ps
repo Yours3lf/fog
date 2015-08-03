@@ -1,0 +1,66 @@
+#version 430 core
+
+layout(binding=0) uniform sampler2D texture0; //normal tex
+layout(binding=1) uniform sampler2D texture1; //depth tex
+
+uniform vec3 ws_cam_pos;
+uniform vec3 light_dir; //directional light direction
+uniform mat4 inv_mv;
+
+in vec4 vs_pos;
+in vec2 tex_coord;
+
+layout(location=0) out vec4 color;
+
+const float far = 2500;
+const float near = 2.5;
+
+const float proj_a = -(far + near) / (far - near);
+const float proj_b = (-2 * far * near) / (far - near);
+
+float compute_volumetric_fog( vec3 cam_to_world_pos )
+{
+  float height_falloff = 0.1;
+  float global_density = 1;
+  float vol_fog_height_density_at_viewer = exp( -height_falloff * ws_cam_pos.y ); //?
+  float fog_int = length( cam_to_world_pos ) * vol_fog_height_density_at_viewer;
+  
+  float slope_threshold = 0.0;
+  
+  if( abs( cam_to_world_pos.y ) > slope_threshold )
+  {
+    float t = height_falloff * cam_to_world_pos.y;
+    fog_int = ( 1.0 - exp( -t ) ) / t;
+  }
+  
+  return exp( -global_density * fog_int );
+}
+
+void main()
+{
+  float depth = texture(texture1, tex_coord).x;
+  
+  //background coloring
+  if(depth > 0.99)
+  {
+    color = vec4(0.5, 0.5, 0.8, 1);
+    return;
+  }
+  
+  vec3 view_ray = vec3( vs_pos.xy / vs_pos.z, 1 );
+	float linear_depth = -proj_b / (depth * 2 - 1 + proj_a);
+	vec3 pos = view_ray * linear_depth;
+  vec3 ws_pos = (inv_mv * vec4( pos, 1 )).xyz;
+
+  vec3 n = texture(texture0, tex_coord).xyz * 2 - 1;
+  vec3 l = light_dir;
+  
+  float n_dot_l = clamp( dot( n, l ), 0, 1 );
+
+  float fog = compute_volumetric_fog( ws_cam_pos - ws_pos );
+  color = vec4( n_dot_l + fog );
+  //color = vec4( float(abs((ws_cam_pos - ws_pos).y) > 0) );
+  //color = vec4( ws_pos, 1 );
+  //color = vec4( n, 1 );
+  //color = vec4( 1 );
+}
